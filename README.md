@@ -4,7 +4,6 @@
 
 ## Introduction
 
-
 This repository focuses on creating chess engine **S.A.R.A - Strategic Adaptive Reevaluation Algorithm** which is a Deep RL
 algorithm which uses *CNN* along with *Proximal Policy approximation*
 
