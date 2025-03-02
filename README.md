@@ -4,14 +4,12 @@
 
 ## Introduction
 
----
 
 This repository focuses on creating chess engine **S.A.R.A - Strategic Adaptive Reevaluation Algorithm** which is a Deep RL
 algorithm which uses *CNN* along with *Proximal Policy approximation*
 
 ## Data Preparation
 
----
 
 The data used is obtained from [FICS Game Database](https://www.ficsgames.org/download.html). Processed games from 2024 for version-1
 
