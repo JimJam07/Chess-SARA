@@ -1,6 +1,14 @@
+import chess.pgn
 import chess
 import numpy as np
-import chess.pgn
+import time
+from tqdm import tqdm
+
+def format_time(seconds):
+    """Convert seconds into hours, minutes, and seconds format."""
+    hours, rem = divmod(seconds, 3600)
+    minutes, seconds = divmod(rem, 60)
+    return f"{int(hours)}h {int(minutes)}m {int(seconds)}s"
 
 def board_to_stockfish_tensor(board):
     """
@@ -23,13 +31,14 @@ def board_to_stockfish_tensor(board):
         state_tensor[channel, row, col] = 1  # Mark presence of the piece
 
     # 2. Side to Move (Plane 12)
-    state_tensor[12, :, :] = 1 if board.turn == chess.WHITE else 0
+    state_tensor[12, :, :] = float(board.turn == chess.WHITE)
 
     # 3. Castling Rights (Planes 13-16)
-    state_tensor[13, :, :] = 1 if board.has_kingside_castling_rights(chess.WHITE) else 0
-    state_tensor[14, :, :] = 1 if board.has_queenside_castling_rights(chess.WHITE) else 0
-    state_tensor[15, :, :] = 1 if board.has_kingside_castling_rights(chess.BLACK) else 0
-    state_tensor[16, :, :] = 1 if board.has_queenside_castling_rights(chess.BLACK) else 0
+    castling_rights = board.castling_rights
+    state_tensor[13, :, :] = float(castling_rights & chess.BB_H1)  # White kingside
+    state_tensor[14, :, :] = float(castling_rights & chess.BB_A1)  # White queenside
+    state_tensor[15, :, :] = float(castling_rights & chess.BB_H8)  # Black kingside
+    state_tensor[16, :, :] = float(castling_rights & chess.BB_A8)  # Black queenside
 
     # 4. En Passant Target Square (Plane 17)
     if board.ep_square is not None:
@@ -49,22 +58,30 @@ def TensorEncoder(pgn_file, limit_games = None):
     :return: Tensor Encoded dataset
     """
     games = []
+    start_time = time.time()  # Start timing
     with open(pgn_file) as f:
         while True:
             game = chess.pgn.read_game(f)
             if game is None:
                 break
             games.append(game)
+    print(f"Read {len(games)}....")
     if limit_games is not None:
-        print(f"Limiting the games to {limit_games}")
+        print(f"Limiting the games to {limit_games}....")
         np.random.shuffle(games)
         games = games[:limit_games]
     tensor_data = []
-    for game in games:
+    for game in tqdm(games, desc="Processing Games", unit="game"):
         board = game.board()
         for move in game.mainline_moves():
             board.push(move)
             tensor_data.append(board_to_stockfish_tensor(board))  # Convert board to tensor
+
+    end_time = time.time()
+    total_time = end_time - start_time
+    formatted_time = format_time(total_time)
+
+    print(f"Time taken: {formatted_time}")
 
     return np.array(tensor_data)
 
