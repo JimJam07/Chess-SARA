@@ -1,39 +1,57 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class ChessEngine(nn.Module):
-    def __init__(self, num_lstm_layers=2, hidden_dim=128, num_classes=4672):  # 4672 legal chess moves
-        super(ChessEngine, self).__init__()
+    def __init__(self, embed_dim=128, lstm_hidden_dim=256, num_lstm_layers=2):
+        super(ChessEngine   , self).__init__()
 
         # CNN Feature Extractor
         self.cnn = nn.Sequential(
-            nn.Conv2d(19, 64, kernel_size=3, padding=1),  # Conv Layer 1
+            nn.Conv2d(in_channels=19, out_channels=32, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),  # Conv Layer 2
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),  # Downsample
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((1, 1))  # Reduce to 128 feature maps
         )
 
-        # LSTM for Sequential Processing
-        self.lstm = nn.LSTM(input_size=128 * 4 * 4,  # Flattened CNN output
-                            hidden_size=hidden_dim,
-                            num_layers=num_lstm_layers,
-                            batch_first=True)
+        # LSTM for sequential learning
+        self.lstm = nn.LSTM(input_size=128, hidden_size=lstm_hidden_dim, num_layers=num_lstm_layers, batch_first=True)
 
-        # Output layer (Policy Network)
-        self.fc = nn.Linear(hidden_dim, num_classes)  # Predict move probabilities
+        # Value Head (Predicts position evaluation)
+        self.value_head = nn.Sequential(
+            nn.Linear(lstm_hidden_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+            nn.Tanh()  # Normalize to [-1,1]
+        )
 
-    def forward(self, x):
-        batch_size, seq_len, channels, height, width = x.shape  # (B, T, C, H, W)
+        # Policy Head (Predicts move embedding)
+        self.policy_head = nn.Sequential(
+            nn.Linear(lstm_hidden_dim, embed_dim),
+            nn.ReLU()
+        )
 
-        # CNN Processing: Flatten time dimension and extract features
-        cnn_out = self.cnn(x.view(batch_size * seq_len, channels, height, width))  # (B*T, C', H', W')
-        cnn_out = cnn_out.view(batch_size, seq_len, -1)  # Reshape for LSTM (B, T, Features)
+    def forward(self, board_tensors):
+        """
+        board_tensors: Shape (batch_size, seq_length, 19, 8, 8)
+        """
+        batch_size, seq_length, _, _, _ = board_tensors.shape
+
+        # Reshape for CNN processing
+        board_tensors = board_tensors.view(batch_size * seq_length, 19, 8, 8)
+
+        # CNN Feature Extraction
+        cnn_features = self.cnn(board_tensors)  # (batch * seq_length, 128, 1, 1)
+        cnn_features = cnn_features.view(batch_size, seq_length, -1)  # Reshape: (batch, seq_length, 128)
 
         # LSTM Processing
-        lstm_out, _ = self.lstm(cnn_out)  # (B, T, Hidden_dim)
+        lstm_out, _ = self.lstm(cnn_features)  # Output shape: (batch, seq_length, lstm_hidden_dim)
 
-        # Final prediction from last LSTM output
-        output = self.fc(lstm_out[:, -1, :])  # Take last timestep
+        # Value & Policy Heads applied to **each timestep**
+        value = self.value_head(lstm_out).squeeze(-1)  # Shape: (batch, seq_length)
+        policy = self.policy_head(lstm_out)  # Shape: (batch, seq_length, 128)
 
-        return output
+        return value, policy  # Preserve seq_length dimension

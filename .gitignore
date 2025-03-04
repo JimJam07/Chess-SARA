@@ -181,3 +181,6 @@ combined_games.pgn
 # Other files
 .idea/
 .DS_Store
+
+# model files
+trainer/
